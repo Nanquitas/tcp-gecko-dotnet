@@ -1469,17 +1469,35 @@ namespace GeckoApp
             // Dump the contents of memory for the search, by either using a full dump or a block-search-dump
             if (doBlockSearch)
             {
-                UInt32 startAddress, endAddress;
-                int startAddressIndex, endAddressIndex;
-                FindPairs(dumpStart, dumpEnd, bufferlength, out startAddress, out endAddress, out startAddressIndex, out endAddressIndex);
-                List<DumpRange> dumpRanges = FindDumpRanges(startAddress, bufferlength, startAddressIndex, endAddressIndex);
-                newDump = new Dump(startAddress, endAddress, dumpNum);
-                PerformBlockSearch(newDump, dumpRanges);
+                try
+                {
+                    UInt32 startAddress, endAddress;
+                    int startAddressIndex, endAddressIndex;
+                    FindPairs(dumpStart, dumpEnd, bufferlength, out startAddress, out endAddress, out startAddressIndex,
+                        out endAddressIndex);
+                    List<DumpRange> dumpRanges = FindDumpRanges(startAddress, bufferlength, startAddressIndex,
+                        endAddressIndex);
+                    newDump = new Dump(startAddress, endAddress, dumpNum);
+                    PerformBlockSearch(newDump, dumpRanges);
+                }
+                catch (Exception ex)
+                {
+                    Program.Logger.Error(ex);
+                }
+
             }
             else
             {
-                newDump = new Dump(dumpStart, dumpEnd, dumpNum);
-                SafeDump(dumpStart, dumpEnd, newDump);
+                try
+                {
+                    newDump = new Dump(dumpStart, dumpEnd, dumpNum);
+                    SafeDump(dumpStart, dumpEnd, newDump);
+                }
+                catch (Exception ex)
+                {
+                    Program.Logger.Error(ex);
+                }
+
             }
 
             if (doCompare)
@@ -1594,6 +1612,7 @@ namespace GeckoApp
                 catch (ETCPGeckoException e)
                 {
                     exceptionHandling.HandleException(e);
+                    Program.Logger.Error(e);
                     if (startdump == memdump.ReadCompletedAddress)
                     {
                         // failed to get any more data; something is probably really wrong so let's just quit

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.IO;
@@ -286,6 +286,18 @@ namespace GeckoApp
                     memalign = gecko.peek(0x1004e2d0);
                     free = gecko.peek(0x100b41fc);
                     break;
+				case 532:
+				case 540:
+                    FSInit = 0x010683C8;
+                    FSAddClient = 0x010689FC;
+                    FSDelClient = 0x01068A08;
+                    FSInitCmdBlock = 0x01068C54;
+                    FSOpenDir = 0x0106F690;
+                    FSCloseDir = 0x0106F700;
+                    FSReadDir = 0x0106F780;
+                    memalign = gecko.peek(0x100b4878);
+                    free = gecko.peek(0x100b487c);
+                    break;
                 default:
                     MessageBox.Show("Unsupported Wii U OS version.", "Version mismatch", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
@@ -428,6 +440,18 @@ namespace GeckoApp
                     FSReadFile = 0x0106d5d0;
                     memalign = gecko.peek(0x1004e2d0);
                     free = gecko.peek(0x100b41fc);
+                    break;
+				case 532:
+				case 540:
+                    FSInit = 0x010683C8;
+                    FSAddClient = 0x010689FC;
+                    FSDelClient = 0x01068A08;
+                    FSInitCmdBlock = 0x01068C54;
+                    FSOpenFile = 0x0106EF7C;
+                    FSCloseFile = 0x0106F088;
+                    FSReadFile = 0x0106F108;
+                    memalign = gecko.peek(0x100b4878);
+                    free = gecko.peek(0x100b487c);
                     break;
                 default:
                     MessageBox.Show("Unsupported Wii U OS version.", "Version mismatch", MessageBoxButtons.OK, MessageBoxIcon.Error);

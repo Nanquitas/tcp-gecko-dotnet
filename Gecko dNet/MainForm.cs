@@ -8,9 +8,11 @@ using System.Text;
 using System.Windows.Forms;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 using TCPTCPGecko;
 using AMS.Profile;
+using System.Threading;
 
 namespace GeckoApp
 {
@@ -18,10 +20,18 @@ namespace GeckoApp
     {
         [DllImport("User32.dll", CharSet = CharSet.Auto, EntryPoint = "SendMessage")]
         protected static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
         [DllImport("User32.dll")]
         public extern static int GetScrollInfo(IntPtr hWnd, int fnBar, ref ScrollInfo lpsi);
+
         [DllImport("User32.dll")]
         public extern static int SetScrollInfo(IntPtr hWnd, int fnBar, ref ScrollInfo lpsi, bool bRedraw);
+
+        [DllImport("kernel32.dll")]
+        static extern bool AttachConsole(int dwProcessId);
+
+        private const int ATTACH_PARENT_PROCESS = -1;
+
         [StructLayout(LayoutKind.Sequential)]
         public struct ScrollInfo
         {
@@ -68,16 +78,44 @@ namespace GeckoApp
         private GCTWizard codeWizard;
 
         private TextWriter BPStepLogWriter;
+        private Task FetchLogTask;
 
         private bool Connecting;
         private bool SteppingOut;
         private bool SteppingUntil;
         private bool SearchingDisassembly;
+        private bool IsRunning;
 
         #region Initialization stuff
+
         public MainForm()
         {
             InitializeComponent();
+        }
+
+        public static void FetchLogThread()
+        {
+            Program.Logger.Add("NTR Logger");
+            TCPGecko gecko = TCPGecko.Instance;
+
+            while (true)
+            {
+                Thread.Sleep(1000);
+                try
+                {
+                    if (gecko.connected)
+                    {
+                        string str = gecko.LogRequest();
+
+                        if (str.Length > 0)
+                            Program.Logger.Add(str);
+                    }
+                }
+                catch (Exception)
+                {
+                    gecko = TCPGecko.Instance;
+                }
+            }
         }
 
         private void MainForm_Load(object sender, EventArgs e)
@@ -93,8 +131,13 @@ namespace GeckoApp
             MainControl.TabPages.Remove(shotPage);
 
             gamename = "";
-            gecko = new TCPGecko(Properties.Settings.Default.hostname, 7331);
+            gecko = new TCPGecko(Properties.Settings.Default.hostname, 5000 + 0x2B);
             gecko.chunkUpdate += transfer;
+
+            Thread t = new Thread(new ThreadStart(FetchLogThread));
+            t.IsBackground = true;
+            t.Start();
+
             hostTextBox.DataBindings.Add("Text", gecko, "Host", false, DataSourceUpdateMode.OnPropertyChanged);
 
             exceptionHandling = new ExceptionHandler(this);
@@ -105,7 +148,7 @@ namespace GeckoApp
             search = new MemSearch(gecko, SearchResults,
                 PrvPage, NxtPage, ResList, UpDownSearchResultPage, exceptionHandling);
 
-            viewer = new MemoryViewer(gecko, ValidMemory.ValidAreas[0].low, memViewGrid,
+            viewer = new MemoryViewer(gecko, 0, memViewGrid,
                 memViewPAddress, memViewPValue, MemViewFPValue, exceptionHandling);
 
 #if MONO
@@ -116,7 +159,8 @@ namespace GeckoApp
                 DisRegion, AsAddress, AsText, exceptionHandling);
 #endif
 
-            bpHandler = new Breakpoints(gecko, BPList, this, disassembler, BPDiss, BPClassic, BPCondList, exceptionHandling);
+            bpHandler = new Breakpoints(gecko, BPList, this, disassembler, BPDiss, BPClassic, BPCondList,
+                exceptionHandling);
             //bpHandler = new Breakpoints(gecko, BPList, this, disassembler, richTextBox1, BPClassic, BPCondList, exceptionHandling);
             foreach (String reg in BPList.longRegNames)
                 BPConditionRegSelect.Items.Add(reg.Trim());
@@ -140,6 +184,8 @@ namespace GeckoApp
 
             for (i = 0; i < ValidMemory.ValidAreas.Length; i++)
             {
+                if (ValidMemory.ValidAreas[i] == null)
+                    break;
                 memRange.Items.Add(
                     GlobalFunctions.toHex(ValidMemory.ValidAreas[i].id, 2));
                 MemViewARange.Items.Add(
@@ -150,11 +196,15 @@ namespace GeckoApp
 
             codeWizard = new GCTWizard(GCTCodeContents);
 
-            memRange.SelectedIndex = 0;
-            MemViewARange.SelectedIndex = 0;
-            MemViewShowMode.SelectedIndex = 0;
+            if (memRange.Items.Count > 0)
+                memRange.SelectedIndex = 0;
+            if (MemViewARange.Items.Count > 0)
+                MemViewARange.SelectedIndex = 0;
+            if (MemViewShowMode.Items.Count > 0)
+                MemViewShowMode.SelectedIndex = 0;
             MemViewSearchType.SelectedIndex = 0;
-            ToolsDumpRegions.SelectedIndex = 0;
+            if (ToolsDumpRegions.Items.Count > 0)
+                ToolsDumpRegions.SelectedIndex = 0;
 
             comboBoxSearchDataType.SelectedIndex = 2;
 
@@ -193,18 +243,20 @@ namespace GeckoApp
 
             codesModified = false;
 
-            AbtText.Text = "tcpGecko dotNET Beta 0.1 by Chadderz\n"
-                          + "based on gecko dotNET Beta 0.63 by Link and dcx2\n\n"
-                          + "Special thanks to:\n\n"
-                          + "kenobi: for original WiiRd GUI!\n"
-                          + "Nuke: for the USB Gecko!\n"
-                          + "brkirch: for continuing Gecko OS!\n"
-                          + "Y.S.: for the original code handler!\n"
-                          + "Team Twiizers for bringing homebrew to the Wii\n"
-                          + "DevKitPro team: No homebrew without them!\n"
-                          + "Frank Wille: vdappc developer!\n"
-                          + "various beta testers!\n"
-                          + "and you!";
+            AbtText.Text = "3DS Mod by Nanquitas, based on \n"
+                           + "tcpGecko dotNET Beta 0.1 by Chadderz\n"
+                           + "based on gecko dotNET Beta 0.63 by Link and dcx2\n\n"
+                           + "Special thanks to:\n\n"
+                           + "Cell9 for original NTR CFW\n"
+                           + "kenobi: for original WiiRd GUI!\n"
+                           + "Nuke: for the USB Gecko!\n"
+                           + "brkirch: for continuing Gecko OS!\n"
+                           + "Y.S.: for the original code handler!\n"
+                           + "Team Twiizers for bringing homebrew to the Wii\n"
+                           + "DevKitPro team: No homebrew without them!\n"
+                           + "Frank Wille: vdappc developer!\n"
+                           + "various beta testers!\n"
+                           + "and you!";
 
             notes = new NoteSheets();
 
@@ -231,6 +283,37 @@ namespace GeckoApp
 
         }
 
+        private void UpdateComponent()
+        {
+            memRange.Items.Clear();
+            MemViewARange.Items.Clear();
+            ToolsDumpRegions.Items.Clear();
+            viewer = new MemoryViewer(gecko, ValidMemory.ValidAreas[0].low, memViewGrid,
+                memViewPAddress, memViewPValue, MemViewFPValue, exceptionHandling);
+
+            for (int i = 0; i < ValidMemory.ValidAreas.Length; i++)
+            {
+                if (ValidMemory.ValidAreas[i] == null)
+                    break;
+                memRange.Items.Add(
+                    GlobalFunctions.toHex(ValidMemory.ValidAreas[i].id, 2));
+                MemViewARange.Items.Add(
+                    GlobalFunctions.toHex(ValidMemory.ValidAreas[i].id, 2));
+                ToolsDumpRegions.Items.Add(
+                    GlobalFunctions.toHex(ValidMemory.ValidAreas[i].id, 2));
+            }
+
+            if (memRange.Items.Count > 0)
+                memRange.SelectedIndex = 0;
+            if (MemViewARange.Items.Count > 0)
+                MemViewARange.SelectedIndex = 0;
+            if (MemViewShowMode.Items.Count > 0)
+                MemViewShowMode.SelectedIndex = 0;
+            MemViewSearchType.SelectedIndex = 0;
+            if (ToolsDumpRegions.Items.Count > 0)
+                ToolsDumpRegions.SelectedIndex = 0;
+        }
+
         private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             VerifyCodesAreSaved();
@@ -240,9 +323,11 @@ namespace GeckoApp
             //GeckoApp.Properties.Settings.Default.addressHistory = addressTextBox1.GetStringFromHistory();
             GeckoApp.Properties.Settings.Default.Save();
         }
+
         #endregion
 
         #region Core functionality
+
         private void SetComboboxValue(String section, String entry, int defaultValue, ComboBox box)
         {
             int maxIndex = box.Items.Count;
@@ -279,29 +364,30 @@ namespace GeckoApp
             ResetSearch();
         }
 
-        private void transfer(UInt32 address, UInt32 currentchunk, UInt32 allchunks, UInt32 transferred, UInt32 length, bool okay, bool dump)
+        private void transfer(UInt32 address, UInt32 currentchunk, UInt32 allchunks, UInt32 transferred, UInt32 length,
+            bool okay, bool dump)
         {
             if (length <= 1024)
                 return;
             int percent;
             if (search.blockDump)
             {
-                double received = (double)(search.blocksDumpedSize + transferred);
-                percent = (int)Math.Round(received * 100 / (double)search.totalBlockSize);
+                double received = (double) (search.blocksDumpedSize + transferred);
+                percent = (int) Math.Round(received*100/(double) search.totalBlockSize);
                 if (percent < 100)
                 {
                     StatusCap.Text = "Performing block dump (block: " +
-                        search.blockID.ToString() + "/" + search.blockCount.ToString() +
-                        "; range:" +
-                        GlobalFunctions.toHex(search.blockStart) + "-" +
-                        GlobalFunctions.toHex(search.blockEnd) + ")";
+                                     search.blockID.ToString() + "/" + search.blockCount.ToString() +
+                                     "; range:" +
+                                     GlobalFunctions.toHex(search.blockStart) + "-" +
+                                     GlobalFunctions.toHex(search.blockEnd) + ")";
                 }
                 else
                     StatusCap.Text = "Transfer completed!";
             }
             else
             {
-                percent = (int)Math.Round(((double)transferred) / ((double)length) * 100);
+                percent = (int) Math.Round(((double) transferred)/((double) length)*100);
                 if (dump && percent < 100)
                     StatusCap.Text = "Dumping data (" + address.ToString("x8") + ")";
                 else if (percent < 100)
@@ -317,7 +403,7 @@ namespace GeckoApp
         public void ResetSearch()
         {
             Search.Text = "Search";
-            comboBoxComparisonRHS.Items[1] = (String)"Unknown value";
+            comboBoxComparisonRHS.Items[1] = (String) "Unknown value";
             ResSrch.Enabled = false;
             search.Reset();
             buttonUndoSearch.Enabled = search.CanUndo();
@@ -341,14 +427,21 @@ namespace GeckoApp
         {
             //CTCPGecko_Click(sender, e);
         }
+
         #endregion
 
         #region Always visible buttons
+
         public void DisconnectButton_Click(object sender, EventArgs e)
         {
             FormStop(false);
-            try { gecko.Disconnect(); }
-            catch { }
+            try
+            {
+                gecko.Disconnect();
+            }
+            catch
+            {
+            }
             StatusCap.Text = "Connection has been closed!";
             progressBar.Value = 0;
             PCent.Text = "0%";
@@ -368,7 +461,7 @@ namespace GeckoApp
             }
         }
 
-        public void CTCPGecko_Click(object sender, EventArgs e)
+        public async void CTCPGecko_Click(object sender, EventArgs e)
         {
             if (Connecting)
             {
@@ -384,8 +477,13 @@ namespace GeckoApp
             if (gecko.connected)
             {
                 StatusCap.Text = "Disconnecting!";
-                try { gecko.Disconnect(); }
-                catch { }
+                try
+                {
+                    gecko.Disconnect();
+                }
+                catch
+                {
+                }
                 Application.DoEvents();
                 System.Threading.Thread.Sleep(500);
             }
@@ -397,8 +495,30 @@ namespace GeckoApp
                 Application.DoEvents();
                 try
                 {
-                    if (!gecko.Connect())
+                    bool c = await Task.Run(() =>
+                    {
+                        for (int p = 0x26; p < 0x50; p++)
+                        {
+                            Program.Logger.Add("Trying to connect on port: " + (5000 + p), LoggerEnum.Debug);
+                            gecko.Port = (5000 + p);
+                            try
+                            {
+                                if (gecko.Connect())
+                                {
+                                    return true;
+                                }
+                            }
+                            catch
+                            {
+                            }
+                        }
+                        return false;
+                    });
+                    if (!c)
                         throw new Exception();
+
+                    Program.Logger.Add("Connected");
+
                     int failAttempt = 0;
                     Connecting = true;
                     CTCPGecko.Text = "Cancel Connection";
@@ -419,17 +539,18 @@ namespace GeckoApp
                         Application.DoEvents();
                     }
                     Connecting = false;
-
+                    
+                    
                     if (gecko.status() == WiiStatus.Loader)
                     {
-                        DialogResult dr = MessageBox.Show("No game has been loaded yet!\nGecko dotNET requires a running game!\n\nShould a game be automatically loaded!", "Gecko dotNET", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
-                        if (dr == DialogResult.Yes)
-                            gecko.Hook();
-                        if (dr == DialogResult.Cancel)
-                        {
-                            Close();
-                            return;
-                        }
+                        //DialogResult dr = MessageBox.Show("No game has been loaded yet!\nGecko dotNET requires a running game!", "Gecko dotNET", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+                        //if (dr == DialogResult.Yes)
+                        //    gecko.Hook();
+                        //if (dr == DialogResult.Cancel)
+                        //{
+                        //    Close();
+                        //    return;
+                        //}
                         while (gecko.status() == WiiStatus.Loader)
                         {
                             StatusCap.Text = "Waiting for game!";
@@ -471,7 +592,7 @@ namespace GeckoApp
 
                     // 8 bytes for Title ID
                     UInt32 title_type, title_id, os_ver;
-                    switch (os_ver = gecko.OsVersionRequest())
+                    /*switch (os_ver = gecko.OsVersionRequest())
                     {
                         case 410:
                             title_type = gecko.peek(0x1000ecb0);
@@ -481,20 +602,28 @@ namespace GeckoApp
                             title_type = gecko.peek(0x10013010);
                             title_id = gecko.peek(0x10013014);
                             break;
+                        case 532:
+			                title_type = gecko.peek(0x100136D0);
+                            title_id = gecko.peek(0x100136D4);
+			    break;
                         default:
                             title_type = 0;
                             title_id = 0;
                             break;
-                    }
-                    String rname = title_type.ToString("X8") + "-" + title_id.ToString("X8");
-
+                    }*/
+                    os_ver = gecko.VersionRequest();
+                    title_type = gecko.TitleTypeRequest();
+                    title_id = gecko.TitleIDRequest();
+                    string gn = gecko.GameNameRequest();
+                    String rname = title_type.ToString("X8") + title_id.ToString("X8") + " - " + gn;
 
                     ValidMemory.setDataUpper(gecko);
+                    UpdateComponent();
 
                     // first time loading a game, or game changed; reload GCT files
                     bool gamenameChanged = gamename != rname;
                     gamename = rname;
-                    try
+                    /*try
                     {
                         using (StreamReader reader = new StreamReader("gamelist.txt"))
                         {
@@ -513,15 +642,17 @@ namespace GeckoApp
                     catch
                     {
                         gametitle = rname;
-                    }
+                    }*/
+                    gametitle = rname;
 
-                    this.Text = "Gecko dotNET (" + gametitle;
+                    this.Text = "3DS Gecko dotNET (" + gametitle;
                     this.Text += ") Handler v";
-                    this.Text += os_ver / 100;
+
+                    this.Text += os_ver >> 24;
                     this.Text += ".";
-                    this.Text += (os_ver / 10) % 10;
+                    this.Text += (os_ver >> 16) & 0xFF;
                     this.Text += ".";
-                    this.Text += os_ver % 10;
+                    this.Text += (os_ver >> 8) & 0xFF;
 
                     if (gamenameChanged)
                     {
@@ -531,7 +662,7 @@ namespace GeckoApp
                     GameNameStored = false;
                     DisconnectButton.Enabled = true;
 
-                    PopulateThreads(os_ver);
+                   // PopulateThreads(os_ver);
                 }
                 else
                 {
@@ -560,39 +691,20 @@ namespace GeckoApp
             ThreadGridView.Rows.Clear();
             ThreadDisplayComboBox.Items.Clear();
 
-            uint tempThreadAddress;
-
-            if (os_ver == 410)
-            {
-                tempThreadAddress = 0x10032E18;
-            }
-                /*
-            else if (os_ver == 500)
-            {
-                //TODO
-            }
-                 */
-            else
-            {
-                //TODO
-                throw new NotImplementedException();
-            }
-
+            uint tempThreadAddress = gecko.peek(0xffffffe0);
             uint temp;
-
             while ((temp = gecko.peek(tempThreadAddress + 0x390)) != 0)
-            {
-                tempThreadAddress = temp;
-            }
-
-            while ((temp = gecko.peek(tempThreadAddress + 0x38C)) != 0)
-            {
-                AddThread(tempThreadAddress);
-                tempThreadAddress = temp;
-            }
-
-            //The above while is nice, but would skip the last thread.
-            AddThread(tempThreadAddress);
+			{
+				tempThreadAddress = temp;
+			}
+			while ((temp = gecko.peek(tempThreadAddress + 0x38C)) != 0)
+			{
+			AddThread(tempThreadAddress);
+			tempThreadAddress = temp;
+			}
+			// The above while is nice, but would skip the last thread.
+			AddThread(tempThreadAddress);
+            
 
             
         }
@@ -948,9 +1060,12 @@ namespace GeckoApp
                 // Pause Gecko - while changing blocks during block search
                 // the game will sometimes move forward a few frames
                 bool WasRunning = (gecko.status() == WiiStatus.Running);
-                gecko.SafePause();
+                //gecko.SafePause();
                 //List<SearchComparisonInfo> comparisons = new List<SearchComparisonInfo>();
                 //comparisons.Add(new SearchComparisonInfo(cType, lValue));
+
+               // searchComparisons.Add(new SearchComparisonInfo(cType, lValue, type));
+
                 bool success = search.SearchRefactored(lAddress, hAddress, searchComparisons, size);
 
 
@@ -959,7 +1074,7 @@ namespace GeckoApp
                 // If we *weren't* running, *don't* go back to running
                 if (WasRunning)
                 {
-                    gecko.SafeResume();
+                  //  gecko.SafeResume();
                 }
 
                 FormStop(true);
@@ -1504,8 +1619,8 @@ namespace GeckoApp
             {
                 viewer.Update();    // trick the memviewgrid into being populated
             }
-
-            memViewGrid.Rows[(int)offset / 0x10].Cells[((int)mAddress & 0xF) / 4 + 1].Selected = true;
+            else
+             memViewGrid.Rows[(int)offset / 0x10].Cells[((int)mAddress & 0xF) / 4 + 1].Selected = true;
 
             tAddress &= 0xFFFFFFFC;
             viewer.address = tAddress;
@@ -5190,7 +5305,10 @@ namespace GeckoApp
                     case 400:
                     case 410:
                         OSSuspendThread = 0x0103CB18;
-                        break;                        
+                        break;   
+                    case 532:
+		        OSSuspendThread = 0x010424dc;
+                        break;  
                     default:
                         MessageBox.Show("Unsupported Wii U OS version.", "Version mismatch", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
@@ -5220,6 +5338,9 @@ namespace GeckoApp
                     case 410:
                         OSResumeThread = 0x0103BFEC;
                         break;
+                    case 532:
+			OSResumeThread = 0x010419b0;
+			break;
                     default:
                         MessageBox.Show("Unsupported Wii U OS version.", "Version mismatch", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
@@ -5279,8 +5400,10 @@ namespace GeckoApp
             bpHandler.contextAddress = threadAddress;
             bpHandler.GetRegisters();
         }
-        
 
-        
+        private void BPList_Load(object sender, EventArgs e)
+        {
+
+        }
     }
 }

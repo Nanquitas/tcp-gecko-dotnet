@@ -10,7 +10,7 @@ namespace TCPTCPGecko
     {
         TcpClient client;
         NetworkStream stream;
-
+        
         public string Host { get; private set; }
         public int Port { get; private set; }
 
@@ -46,7 +46,7 @@ namespace TCPTCPGecko
             finally
             {
                 wh.Close();
-            } 
+            }
             stream = client.GetStream();
             stream.ReadTimeout = 10000;
             stream.WriteTimeout = 10000;

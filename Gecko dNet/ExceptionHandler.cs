@@ -34,6 +34,7 @@ namespace GeckoApp
         private void HandleExceptionInternally(ETCPGeckoException exc)
         {
             Logger.WriteLineTimed("Exception occured!");
+            Logger.WriteLine("Error code: " + exc.ErrorCode);
             Logger.WriteLine("Message: " + exc.Message);
             Logger.WriteLine("Stack Trace: \r\n" + exc.StackTrace);
             Logger.WriteLine("Inner Exception: " + exc.InnerException);

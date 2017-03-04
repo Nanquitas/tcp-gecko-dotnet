@@ -476,21 +476,25 @@ namespace GeckoApp.external
 
         public void AddOffsetToAddress(String offset)
         {
-                try
+            try
+            {
+                bool negative = false;
+                if (offset.Contains("-"))
                 {
-                    bool negative = false;
-                    if (offset.Contains("-"))
-                    {
-                        offset = offset.Replace("-", String.Empty);
-                        negative = true;
-                    }
-                    int casted = Convert.ToInt32(offset, 16);
-                    if (negative) casted *= -1;
-                    AddOffsetToAddress(casted);
+                    offset = offset.Replace("-", String.Empty);
+                    negative = true;
                 }
-                catch (FormatException)
-                {
-                }
+                int casted = Convert.ToInt32(offset, 16);
+                if (negative) casted *= -1;
+                AddOffsetToAddress(casted);
+            }
+            catch (FormatException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Program.Logger.Error(ex);
+            }
         }
 
         public void AddOffsetToAddress(int offset)
