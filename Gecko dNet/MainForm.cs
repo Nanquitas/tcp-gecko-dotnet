@@ -129,6 +129,9 @@ namespace GeckoApp
             MainControl.TabPages.Remove(GCTPage);
             MainControl.TabPages.Remove(BreakpointPage);
             MainControl.TabPages.Remove(shotPage);
+            MainControl.TabPages.Remove(FSATab);
+            MainControl.TabPages.Remove(DebugTabPage);
+            MainControl.TabPages.Remove(DisPage);
 
             gamename = "";
             gecko = new TCPGecko(Properties.Settings.Default.hostname, 5000 + 0x2B);
