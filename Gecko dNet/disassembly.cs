@@ -55,10 +55,6 @@ namespace GeckoApp
 			GAs = "powerpc-eabi-as";
 			GLd = "powerpc-eabi-ld";
 			GOc = "powerpc-eabi-objcopy";
-#else
-            GAs = "powerpc-gekko-as.exe";
-            GLd = "powerpc-gekko-ld.exe";
-            GOc = "powerpc-gekko-objcopy.exe";
 #endif
         }
 
