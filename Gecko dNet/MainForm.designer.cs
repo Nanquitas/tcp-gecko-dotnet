@@ -399,6 +399,7 @@
             this.AsAddress = new GeckoApp.external.AddressTextBox();
             this.DisRegion = new GeckoApp.external.AddressTextBox();
             this.addressTextBoxBPNext = new GeckoApp.external.AddressTextBox();
+            this.updregion = new System.Windows.Forms.Button();
             toolStripMenuItem1 = new System.Windows.Forms.ToolStripSeparator();
             ((System.ComponentModel.ISupportInitialize)(this.memViewGrid)).BeginInit();
             this.memViewContextMenu.SuspendLayout();
@@ -800,6 +801,7 @@
             // searchPage
             // 
             this.searchPage.BackColor = System.Drawing.Color.Transparent;
+            this.searchPage.Controls.Add(this.updregion);
             this.searchPage.Controls.Add(this.buttonSerialPoke);
             this.searchPage.Controls.Add(this.numericUpDownNewSearchIndex);
             this.searchPage.Controls.Add(this.buttonUndoSearch);
@@ -826,7 +828,7 @@
             this.searchPage.Controls.Add(this.groupBoxSearchGroups);
             this.searchPage.Location = new System.Drawing.Point(4, 22);
             this.searchPage.Name = "searchPage";
-            this.searchPage.Padding = new System.Windows.Forms.Padding(3, 3, 3, 3);
+            this.searchPage.Padding = new System.Windows.Forms.Padding(3);
             this.searchPage.Size = new System.Drawing.Size(614, 335);
             this.searchPage.TabIndex = 0;
             this.searchPage.Text = "Search";
@@ -1673,7 +1675,7 @@
             this.MemView.Controls.Add(this.groupBox6);
             this.MemView.Location = new System.Drawing.Point(4, 22);
             this.MemView.Name = "MemView";
-            this.MemView.Padding = new System.Windows.Forms.Padding(3, 3, 3, 3);
+            this.MemView.Padding = new System.Windows.Forms.Padding(3);
             this.MemView.Size = new System.Drawing.Size(614, 335);
             this.MemView.TabIndex = 1;
             this.MemView.Text = "Memory Viewer";
@@ -2366,7 +2368,7 @@
             this.DebugTabPage.Controls.Add(this.buttonShowMem);
             this.DebugTabPage.Location = new System.Drawing.Point(4, 22);
             this.DebugTabPage.Name = "DebugTabPage";
-            this.DebugTabPage.Padding = new System.Windows.Forms.Padding(3, 3, 3, 3);
+            this.DebugTabPage.Padding = new System.Windows.Forms.Padding(3);
             this.DebugTabPage.Size = new System.Drawing.Size(614, 335);
             this.DebugTabPage.TabIndex = 10;
             this.DebugTabPage.Text = "Debug";
@@ -4292,11 +4294,22 @@
             this.addressTextBoxBPNext.TabIndex = 5;
             this.addressTextBoxBPNext.Text = "800018A8";
             // 
+            // updregion
+            // 
+            this.updregion.Location = new System.Drawing.Point(146, 163);
+            this.updregion.Name = "updregion";
+            this.updregion.Size = new System.Drawing.Size(133, 23);
+            this.updregion.TabIndex = 24;
+            this.updregion.Text = "Update Mem Region";
+            this.updregion.UseVisualStyleBackColor = true;
+            this.updregion.Click += new System.EventHandler(this.updregion_Click);
+            // 
             // MainForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.AutoSize = true;
+            this.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
             this.ClientSize = new System.Drawing.Size(632, 453);
             this.Controls.Add(this.hostTextBox);
             this.Controls.Add(this.groupBox5);
@@ -4770,6 +4783,7 @@
         private System.Windows.Forms.DataGridViewTextBoxColumn ThreadNameColumn;
         private System.Windows.Forms.DataGridViewTextBoxColumn ThreadStateColumn;
         private System.Windows.Forms.DataGridViewTextBoxColumn ThreadAddressColumn;
+        private System.Windows.Forms.Button updregion;
     }
 }
 
