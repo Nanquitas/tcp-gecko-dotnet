@@ -5408,5 +5408,11 @@ namespace GeckoApp
         {
 
         }
+
+        private void updregion_Click(object sender, EventArgs e)
+        {
+            ValidMemory.setDataUpper(gecko);
+            UpdateComponent();
+        }
     }
 }
