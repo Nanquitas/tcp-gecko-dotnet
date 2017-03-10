@@ -221,9 +221,6 @@
     <Compile Include="watchlist.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="gamelist.txt">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Content Include="gecko2.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

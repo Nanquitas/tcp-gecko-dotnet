@@ -11,6 +11,7 @@ using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Windows.Forms.VisualStyles;
 using Ionic.Zip;
+using System.Linq;
 
 namespace TCPTCPGecko
 {
@@ -75,8 +76,6 @@ namespace TCPTCPGecko
             mem = new Byte[endAddress - startAddress];
             fileNumber = theFileNumber;            
         }
-    
-
         public UInt32 ReadAddress32(UInt32 addressToRead)
         {
             //dumpStream.Seek(addressToRead - startAddress, SeekOrigin.Begin);
@@ -187,6 +186,8 @@ namespace TCPTCPGecko
         FTDITransferSetError,
         FTDICommandSendError,
         FTDIReadDataError,
+        FTDIWriteDataError,
+        FTDIInvalidAddress,
         FTDIInvalidReply,
         TooManyRetries,
         REGStreamSizeInvalid,
@@ -194,10 +195,11 @@ namespace TCPTCPGecko
     }
 
     public enum FTDICommand {
-        CMD_ResultError,
-        CMD_FatalError,
-        CMD_OK
+        CmdResultError,
+        CmdFatalError,
+        CmdOk
     }
+
 
     public enum WiiStatus {
         Running,
@@ -302,7 +304,13 @@ namespace TCPTCPGecko
         private const Byte    cmd_title_id = 0x52;
         private const Byte    cmd_game_pid = 0x53;
         private const Byte   cmd_game_name = 0x54;
-        private const Byte   cmd_cheatexec = 0x60;
+        private const Byte cmd_patch_wireless = 0x55;
+        private const Byte cmd_add_cheat = 0x56;
+        private const Byte cmd_delete_cheat = 0x57;
+        private const Byte cmd_enable_cheat = 0x58;
+        private const Byte cmd_disable_cheat = 0x59;
+        private const Byte cmd_list_cheats = 0x60;
+        private const Byte   cmd_cheatexec = 0x9E;
         private const Byte         cmd_rpc = 0x70;
         private const Byte cmd_nbreakpoint = 0x89;
         private const Byte     cmd_version = 0x99;
@@ -429,7 +437,7 @@ namespace TCPTCPGecko
             {
                 PTCP.Connect();
                 /*Byte[] init = new Byte[1];
-                if (GeckoRead(init, 1) != FTDICommand.CMD_OK || init[0] != 1)
+                if (GeckoRead(init, 1) != FTDICommand.CmdOk || init[0] != 1)
                     throw new IOException("init byte missing");*/
             }
             catch (IOException)
@@ -469,14 +477,14 @@ namespace TCPTCPGecko
                 catch (IOException)
                 {
                     Disconnect();
-                    return FTDICommand.CMD_FatalError; // fatal error
+                    return FTDICommand.CmdFatalError; // fatal error
                 }
                 if (bytes_read != nobytes)
                 {
-                    return FTDICommand.CMD_ResultError; // lost bytes in transmission
+                    return FTDICommand.CmdResultError; // lost bytes in transmission
                 }
 
-                return FTDICommand.CMD_OK;
+                return FTDICommand.CmdOk;
             }
         }
 
@@ -493,48 +501,48 @@ namespace TCPTCPGecko
                 catch (IOException)
                 {
                     Disconnect();
-                    return FTDICommand.CMD_FatalError; // fatal error
+                    return FTDICommand.CmdFatalError; // fatal error
                 }
                 if (bytes_written != nobytes)
                 {
-                    return FTDICommand.CMD_ResultError; // lost bytes in transmission
+                    return FTDICommand.CmdResultError; // lost bytes in transmission
                 }
 
-                return FTDICommand.CMD_OK;
+                return FTDICommand.CmdOk;
             }
         }
 
-        protected FTDICommand GeckoWrite(UInt32[] array)
+        protected FTDICommand GeckoWrite(UInt32[] array, uint size = 0)
         {
-            int nobytes = array.Length*4;
+            int max = size == 0 ? array.Length : (int)size;
+            int nobytes = max * 4;
             byte[] sendbyte = new byte[nobytes];
-            for (int i = 0; i < array.Length; i++)
+
+            for (int i = 0; i < max; i++)
             {
                 sendbyte[i * 4] = BitConverter.GetBytes(array[i])[0];
                 sendbyte[i * 4 + 1] = BitConverter.GetBytes(array[i])[1];
                 sendbyte[i * 4 + 2] = BitConverter.GetBytes(array[i])[2];
                 sendbyte[i * 4 + 3] = BitConverter.GetBytes(array[i])[3];
             }
-                
+
             lock (_networkInUse)
             {
-                UInt32 bytes_written = 0;
+                UInt32 bytesWritten = 0;
 
                 try
                 {
-                    PTCP.Write(sendbyte, nobytes, ref bytes_written);
+                    PTCP.Write(sendbyte, nobytes, ref bytesWritten);
                 }
                 catch (IOException)
                 {
                     Disconnect();
-                    return FTDICommand.CMD_FatalError; // fatal error
+                    return FTDICommand.CmdFatalError; // fatal error
                 }
-                if (bytes_written != nobytes)
-                {
-                    return FTDICommand.CMD_ResultError; // lost bytes in transmission
-                }
+                if (bytesWritten != nobytes)
+                    return FTDICommand.CmdResultError; // lost bytes in transmission
 
-                return FTDICommand.CMD_OK;
+                return FTDICommand.CmdOk;
             }
         }
 
@@ -566,7 +574,7 @@ namespace TCPTCPGecko
             {
                 byte[] response = new byte[1];
 
-                if (GeckoRead(response, 1) != FTDICommand.CMD_OK)
+                if (GeckoRead(response, 1) != FTDICommand.CmdOk)
                 {
                     //Major fail, give it up
                     GeckoWrite(BitConverter.GetBytes(GCFAIL), 1);
@@ -595,13 +603,13 @@ namespace TCPTCPGecko
 
 
                 // Send the read memory command to client
-                if (GeckoWrite(BitConverter.GetBytes(cmd_readmem), 1) != FTDICommand.CMD_OK)
+                if (GeckoWrite(BitConverter.GetBytes(cmd_readmem), 1) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 //Now let's send the dump information
                 UInt32[] GeckoMemRange = new UInt32[2] {startdump, enddump};
 
-                if (GeckoWrite(GeckoMemRange) != FTDICommand.CMD_OK)
+                if (GeckoWrite(GeckoMemRange) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
 
@@ -632,7 +640,7 @@ namespace TCPTCPGecko
 
                     //Set buffer
                     Byte[] response = new Byte[1];
-                    if (GeckoRead(response, 1) != FTDICommand.CMD_OK)
+                    if (GeckoRead(response, 1) != FTDICommand.CmdOk)
                     {
                         //Major fail, give it up
                         GeckoWrite(BitConverter.GetBytes(GCFAIL), 1);
@@ -667,13 +675,13 @@ namespace TCPTCPGecko
                     else
                     {
                         // Get the length to read
-                        if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                        if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                             throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
 
                         UInt32 length = BitConverter.ToUInt32(buffer, 0);
 
                         // Read data
-                        if (GeckoRead(buffer, length) != FTDICommand.CMD_OK)
+                        if (GeckoRead(buffer, length) != FTDICommand.CmdOk)
                         {
                             GeckoWrite(BitConverter.GetBytes(GCFAIL), 1);
                             throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
@@ -729,13 +737,13 @@ namespace TCPTCPGecko
 
 
                 // Send the read memory command to client
-                if (GeckoWrite(BitConverter.GetBytes(cmd_readmem), 1) != FTDICommand.CMD_OK)
+                if (GeckoWrite(BitConverter.GetBytes(cmd_readmem), 1) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 //Now let's send the dump information
                 UInt32[] GeckoMemRange = new UInt32[2] { startdump, enddump };
 
-                if (GeckoWrite(GeckoMemRange) != FTDICommand.CMD_OK)
+                if (GeckoWrite(GeckoMemRange) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
 
@@ -767,7 +775,7 @@ namespace TCPTCPGecko
 
                     //Set buffer
                     Byte[] response = new Byte[1];
-                    if (GeckoRead(response, 1) != FTDICommand.CMD_OK)
+                    if (GeckoRead(response, 1) != FTDICommand.CmdOk)
                     {
                         //Major fail, give it up
                         GeckoWrite(BitConverter.GetBytes(GCFAIL), 1);
@@ -801,7 +809,7 @@ namespace TCPTCPGecko
                     else
                     {
                         // Get the length to read
-                        if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                        if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                         {
                             throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
                         }
@@ -809,7 +817,7 @@ namespace TCPTCPGecko
                         UInt32 length = BitConverter.ToUInt32(buffer, 0);
 
                         // Read data
-                        if (GeckoRead(buffer, length) != FTDICommand.CMD_OK)
+                        if (GeckoRead(buffer, length) != FTDICommand.CmdOk)
                         {
                             GeckoWrite(BitConverter.GetBytes(GCFAIL), 1);
                             throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
@@ -841,136 +849,68 @@ namespace TCPTCPGecko
 
         public void Upload(UInt32 startupload, UInt32 endupload, Stream sendStream)
         {
-            lock (_networkInUse)
             {
-                //Reset connection
-                InitGecko();
+                if (endupload < startupload)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDIInvalidAddress, "End address can't be lower than start address.");
 
-                //How many bytes of data have to be transferred
-                UInt32 memlength = endupload - startupload;
-
-                //How many chunks do I need to split this data into
-                //How big ist the last chunk
-                UInt32 fullchunks = memlength/uplpacketsize;
-                UInt32 lastchunk = memlength%uplpacketsize;
-
-                //How many chunks do I need to transfer
-                UInt32 allchunks = fullchunks;
-                if (lastchunk > 0)
-                    allchunks++;
-
-                UInt64 GeckoMemRange = ByteSwap.Swap((UInt64) (((UInt64) startupload << 32) + ((UInt64) endupload)));
-
-                if (GeckoWrite(BitConverter.GetBytes(cmd_upload), 1) != FTDICommand.CMD_OK)
-                    throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
-
-                //Read reply - expcecting GCACK -- nope, too slow, TCP is reliable!
-                Byte retry = 0;
-                /*while (retry < 10)
+                lock (_networkInUse)
                 {
-                    Byte[] response = new Byte[1];
-                    if (GeckoRead(response, 1) != FTDICommand.CMD_OK)
+                    // How many bytes of data have to be transferred
+                    uint memlength = endupload - startupload;
+
+                    // How many chunks do I need to split this data into
+                    // How big ist the last chunk
+                    uint chunkcount = memlength / uplpacketsize;
+
+                    if (memlength % uplpacketsize > 0)
+                        chunkcount++;
+
+                    UInt32[] geckoMemRange = { startupload, endupload };
+
+                    // Send command
+                    if (GeckoWrite(BitConverter.GetBytes(cmd_upload), 1) != FTDICommand.CmdOk)
+                        throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
+
+                    // Now let's send the upload information
+                    if (GeckoWrite(geckoMemRange) != FTDICommand.CmdOk)
+                        throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
+
+                    byte[] buffer = new byte[uplpacketsize];
+                    uint transfered = 0;
+                    int restlength = (int)memlength;
+                    uint chunk = 0;
+
+                    while (restlength > 0)
+                    {
+                        // Update progress
+                        SendUpdate(startupload + transfered, chunk, chunkcount, transfered, memlength, true, false);
+
+                        uint length = restlength > uplpacketsize ? uplpacketsize : (uint)restlength;
+
+                        // Read buffer from stream
+                        sendStream.Read(buffer, 0, (int)length);
+
+                        if (GeckoWrite(buffer, (int)length) != FTDICommand.CmdOk)
+                        {
+                            throw new ETCPGeckoException(ETCPErrorCode.FTDIWriteDataError);
+                        }
+                        chunk++;
+                        transfered += length;
+                        restlength -= (int)length;
+                    }
+
+                    // Check the good ending of the upload
+                    byte[] response = new byte[1];
+
+                    if (GeckoRead(response, 1) != FTDICommand.CmdOk)
                         throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
-                    Byte reply = response[0];
-                    if (reply == GCACK)
-                        break;
-                    if (retry == 9)
+
+                    if (response[0] != GCACK)
                         throw new ETCPGeckoException(ETCPErrorCode.FTDIInvalidReply);
-                }*/
 
-                //Now let's send the upload information
-                if (GeckoWrite(BitConverter.GetBytes(GeckoMemRange), 8) != FTDICommand.CMD_OK)
-                    throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
-
-                //We start with chunk 0
-                UInt32 chunk = 0;
-                retry = 0;
-
-                Byte[] buffer; //read buffer
-                while (chunk < fullchunks)
-                {
-                    //No output yet availible
-                    SendUpdate(startupload + chunk*packetsize, chunk, allchunks, chunk*packetsize, memlength, retry == 0,
-                        false);
-                    //Set buffer
-                    buffer = new Byte[uplpacketsize];
-                    //Read buffer from stream
-                    sendStream.Read(buffer, 0, (int) uplpacketsize);
-                    FTDICommand returnvalue = GeckoWrite(buffer, (int) uplpacketsize);
-                    if (returnvalue == FTDICommand.CMD_ResultError)
-                    {
-                        retry++;
-                        if (retry >= 3)
-                        {
-                            //Give up, too many retries
-                            Disconnect();
-                            throw new ETCPGeckoException(ETCPErrorCode.TooManyRetries);
-                        }
-                        //Reset stream
-                        sendStream.Seek((-1)*((int) uplpacketsize), SeekOrigin.Current);
-                        //GeckoWrite(BitConverter.GetBytes(GCRETRY), 1);
-                        continue;
-                    }
-                    else if (returnvalue == FTDICommand.CMD_FatalError)
-                    {
-                        //Major fail, give it up
-                        Disconnect();
-                        throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
-                    }
-                    //reset retry counter
-                    retry = 0;
-                    //next chunk
-                    chunk++;
-                    //ackowledge package -- nope, too slow, TCP is reliable!
-                    //GeckoWrite(BitConverter.GetBytes(GCACK), 1);
+                    // Update with finished stage
+                    SendUpdate(startupload + transfered, chunk, chunkcount, transfered, memlength, true, false);
                 }
-
-                //Final package?
-                while (lastchunk > 0)
-                {
-                    //No output yet availible
-                    SendUpdate(startupload + chunk*packetsize, chunk, allchunks, chunk*packetsize, memlength, retry == 0,
-                        false);
-                    //Set buffer
-                    buffer = new Byte[lastchunk];
-                    //Read buffer from stream
-                    sendStream.Read(buffer, 0, (int) lastchunk);
-                    FTDICommand returnvalue = GeckoWrite(buffer, (int) lastchunk);
-                    if (returnvalue == FTDICommand.CMD_ResultError)
-                    {
-                        retry++;
-                        if (retry >= 3)
-                        {
-                            //Give up, too many retries
-                            Disconnect();
-                            throw new ETCPGeckoException(ETCPErrorCode.TooManyRetries);
-                        }
-                        //Reset stream
-                        sendStream.Seek((-1)*((int) lastchunk), SeekOrigin.Current);
-                        //GeckoWrite(BitConverter.GetBytes(GCRETRY), 1);
-                        continue;
-                    }
-                    else if (returnvalue == FTDICommand.CMD_FatalError)
-                    {
-                        //Major fail, give it up
-                        Disconnect();
-                        throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
-                    }
-                    //reset retry counter
-                    retry = 0;
-                    //cancel while loop
-                    lastchunk = 0;
-                    //ackowledge package -- nope, too slow, TCP is reliable!
-                    //GeckoWrite(BitConverter.GetBytes(GCACK), 1);
-                }
-
-                Byte[] response = new Byte[1];
-                if (GeckoRead(response, 1) != FTDICommand.CMD_OK)
-                    throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
-                Byte reply = response[0];
-                if (reply != GCACK)
-                    throw new ETCPGeckoException(ETCPErrorCode.FTDIInvalidReply);
-                SendUpdate(endupload, allchunks, allchunks, memlength, memlength, true, false);
             }
         }
 
@@ -999,7 +939,7 @@ namespace TCPTCPGecko
             lock (_networkInUse)
             {
                 //Only needs to send a cmd_pause to Wii
-                if (RawCommand(cmd_pause) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_pause) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             }
         }
@@ -1024,7 +964,7 @@ namespace TCPTCPGecko
             lock (_networkInUse)
             {
                 //Only needs to send a cmd_unfreeze to Wii
-                if (RawCommand(cmd_unfreeze) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_unfreeze) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             }
         }
@@ -1073,11 +1013,11 @@ namespace TCPTCPGecko
                 UInt32[] PokeVal = new UInt32[2] {address, value};
 
                 //Send poke
-                if (RawCommand(cmd_pokemem) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_pokemem) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 //write value
-                if (GeckoWrite(PokeVal) != FTDICommand.CMD_OK)
+                if (GeckoWrite(PokeVal) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             }
         }
@@ -1099,11 +1039,11 @@ namespace TCPTCPGecko
                 UInt32[] PokeVal = new UInt32[2] { address, value };
 
                 //Send poke16
-                if (RawCommand(cmd_poke16) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_poke16) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 //write value
-                if (GeckoWrite(PokeVal) != FTDICommand.CMD_OK)
+                if (GeckoWrite(PokeVal) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             }
         }
@@ -1117,11 +1057,11 @@ namespace TCPTCPGecko
                 UInt32[] PokeVal = new UInt32[2] { address, value };
 
                 //Send poke08
-                if (RawCommand(cmd_poke08) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_poke08) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 //write value
-                if (GeckoWrite(PokeVal) != FTDICommand.CMD_OK)
+                if (GeckoWrite(PokeVal) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             }
         }
@@ -1139,11 +1079,11 @@ namespace TCPTCPGecko
                 PokeVal = ByteSwap.Swap(PokeVal);
 
                 //Send poke
-                if (RawCommand(cmd_writekern) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_writekern) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 //write value
-                if (GeckoWrite(BitConverter.GetBytes(PokeVal), 8) != FTDICommand.CMD_OK)
+                if (GeckoWrite(BitConverter.GetBytes(PokeVal), 8) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             }
         }
@@ -1157,15 +1097,15 @@ namespace TCPTCPGecko
                 address = ByteSwap.Swap(address);
 
                 //Send read
-                if (RawCommand(cmd_readkern) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_readkern) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 //write value
-                if (GeckoWrite(BitConverter.GetBytes(address), 4) != FTDICommand.CMD_OK)
+                if (GeckoWrite(BitConverter.GetBytes(address), 4) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 Byte[] buffer = new Byte[4];
-                if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 return ByteSwap.Swap(BitConverter.ToUInt32(buffer, 0));
@@ -1184,14 +1124,14 @@ namespace TCPTCPGecko
                     throw new ETCPGeckoException(ETCPErrorCode.FTDIResetError);
 
                 //Send status command
-                if (RawCommand(cmd_status) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_status) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
 //			System.Threading.Thread.Sleep(10);
 
                 //Read status
                 Byte[] buffer = new Byte[1];
-                if (GeckoRead(buffer, 1) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 1) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
 
                 //analyse reply
@@ -1221,7 +1161,7 @@ namespace TCPTCPGecko
                     throw new ETCPGeckoException(ETCPErrorCode.FTDIResetError);
 
                 //Send step command
-                if (RawCommand(cmd_step) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_step) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             }
         }
@@ -1244,24 +1184,24 @@ namespace TCPTCPGecko
 
             if (!useGeckoBP) //classic PPC breakpoint
             {
-                if (RawCommand(cmd_breakpoint) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_breakpoint) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 //Convert lowaddr to BigEndian
                 UInt32 breakpaddr = ByteSwap.Swap(lowaddr);
 
-                if (GeckoWrite(BitConverter.GetBytes(breakpaddr),4)!=FTDICommand.CMD_OK)
+                if (GeckoWrite(BitConverter.GetBytes(breakpaddr),4)!=FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             }
             else //advanced exact Gecko breakpoint
             {
-                if (RawCommand(cmd_nbreakpoint) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_nbreakpoint) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 UInt64 breakpaddr = ((UInt64)lowaddr) << 32 | ((UInt64)address);
                 breakpaddr = ByteSwap.Swap(breakpaddr);
 
-                if (GeckoWrite(BitConverter.GetBytes(breakpaddr), 8) != FTDICommand.CMD_OK)
+                if (GeckoWrite(BitConverter.GetBytes(breakpaddr), 8) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             }
         }
@@ -1307,11 +1247,11 @@ namespace TCPTCPGecko
             UInt32 baddress = ByteSwap.Swap(((UInt32)(address & 0xFFFFFFFC) | BPExecute));
 
             //Send breakpoint execute command
-            if (RawCommand(cmd_breakpointx) != FTDICommand.CMD_OK)
+            if (RawCommand(cmd_breakpointx) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
             //Send address to handler
-            if(GeckoWrite(BitConverter.GetBytes(baddress),4) != FTDICommand.CMD_OK)
+            if(GeckoWrite(BitConverter.GetBytes(baddress),4) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
         }
 
@@ -1321,7 +1261,7 @@ namespace TCPTCPGecko
         {
             Byte[] buffer = new Byte[1];
             
-            if (GeckoRead(buffer, 1) != FTDICommand.CMD_OK)
+            if (GeckoRead(buffer, 1) != FTDICommand.CmdOk)
                 return false;
 
             //did we receive a bphit signal?
@@ -1332,7 +1272,7 @@ namespace TCPTCPGecko
         //doesn't work thanks to a malfunction of current gecko handlers!
         public void CancelBreakpoint()
         {
-            if (RawCommand(cmd_cancelbp) != FTDICommand.CMD_OK)
+            if (RawCommand(cmd_cancelbp) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
         }
 #endregion
@@ -1352,12 +1292,12 @@ namespace TCPTCPGecko
             {
                 InitGecko();
 
-                if (RawCommand(cmd_version) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_version) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 Byte[] buffer = new Byte[4];
 
-                if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 return BitConverter.ToUInt32(buffer, 0);
@@ -1368,12 +1308,12 @@ namespace TCPTCPGecko
         {
             lock (_networkInUse)
             {
-                if (RawCommand(cmd_os_version) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_os_version) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 Byte[] buffer = new Byte[4];
 
-                if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 return ByteSwap.Swap(BitConverter.ToUInt32(buffer, 0));
@@ -1383,12 +1323,12 @@ namespace TCPTCPGecko
         {
             lock (_networkInUse)
             {
-                if (RawCommand(cmd_kern_version) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_kern_version) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 Byte[] buffer = new Byte[4];
 
-                if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 return ByteSwap.Swap(BitConverter.ToUInt32(buffer, 0));
@@ -1398,30 +1338,30 @@ namespace TCPTCPGecko
         {
             lock (_networkInUse)
             {
-                if (RawCommand(cmd_title_type) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_title_type) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 Byte[] buffer = new Byte[4];
 
-                if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
-                return ByteSwap.Swap(BitConverter.ToUInt32(buffer, 0));
+                return BitConverter.ToUInt32(buffer, 0);
             }
         }
         public UInt32 TitleIDRequest()
         {
             lock (_networkInUse)
             {
-                if (RawCommand(cmd_title_id) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_title_id) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 Byte[] buffer = new Byte[4];
 
-                if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
-                return ByteSwap.Swap(BitConverter.ToUInt32(buffer, 0));
+                return BitConverter.ToUInt32(buffer, 0);
             }
         }
 
@@ -1429,12 +1369,12 @@ namespace TCPTCPGecko
         {
             lock (_networkInUse)
             {
-                if (RawCommand(cmd_game_pid) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_game_pid) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 Byte[] buffer = new Byte[4];
 
-                if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 return ByteSwap.Swap(BitConverter.ToUInt32(buffer, 0));
@@ -1446,13 +1386,13 @@ namespace TCPTCPGecko
             {
                 string name = "";
 
-                if (RawCommand(cmd_game_name) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_game_name) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 // Is there any log to fetch ?
                 byte[] buffer = new byte[8];
 
-                if (GeckoRead(buffer, 8) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 8) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 name = Encoding.UTF8.GetString(buffer);
@@ -1466,12 +1406,12 @@ namespace TCPTCPGecko
             lock (_networkInUse)
             {
                 // Fetch how many regions we have
-                if (RawCommand(cmd_list_region) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_list_region) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 Byte[] buffer = new Byte[1];
 
-                if (GeckoRead(buffer, 1) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 1) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 UInt32 count = buffer[0]; //ByteSwap.Swap(BitConverter.ToUInt32(buffer, 0));
@@ -1486,7 +1426,7 @@ namespace TCPTCPGecko
                 // Allocate buffer to receive data
                 buffer = new byte[size];
 
-                if (GeckoRead(buffer, size) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, size) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 for (int i = 0, j = 0; i < buffer.Length; i += 4, j++)
@@ -1504,13 +1444,13 @@ namespace TCPTCPGecko
             {
                 string log = "";
 
-                if (RawCommand(cmd_fetch_log) != FTDICommand.CMD_OK)
+                if (RawCommand(cmd_fetch_log) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 // Is there any log to fetch ?
                 byte[] buffer = new byte[4];
 
-                if (GeckoRead(buffer, 4) != FTDICommand.CMD_OK)
+                if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
                     throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                 UInt32 logLen = BitConverter.ToUInt32(buffer, 0);
@@ -1518,7 +1458,7 @@ namespace TCPTCPGecko
                 {
                     buffer = new byte[logLen];
 
-                    if (GeckoRead(buffer, logLen) != FTDICommand.CMD_OK)
+                    if (GeckoRead(buffer, logLen) != FTDICommand.CmdOk)
                         throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
                     log = Encoding.UTF8.GetString(buffer);
@@ -1696,7 +1636,7 @@ namespace TCPTCPGecko
 
             length = (UInt32)cheatStream.Length;
 
-            if (GeckoWrite(BitConverter.GetBytes(cmd_sendcheats), 1) != FTDICommand.CMD_OK)
+            if (GeckoWrite(BitConverter.GetBytes(cmd_sendcheats), 1) != FTDICommand.CmdOk)
             {
                 cheatStream.Close();
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
@@ -1717,7 +1657,7 @@ namespace TCPTCPGecko
             while (retry < 10)
             {
                 Byte[] response = new Byte[1];
-                if (GeckoRead(response, 1) != FTDICommand.CMD_OK)
+                if (GeckoRead(response, 1) != FTDICommand.CmdOk)
                 {
                     cheatStream.Close();
                     throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
@@ -1733,7 +1673,7 @@ namespace TCPTCPGecko
             }
 
             UInt32 blength = ByteSwap.Swap(length);
-            if (GeckoWrite(BitConverter.GetBytes(blength), 4) != FTDICommand.CMD_OK)
+            if (GeckoWrite(BitConverter.GetBytes(blength), 4) != FTDICommand.CmdOk)
             {
                 cheatStream.Close();
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
@@ -1753,7 +1693,7 @@ namespace TCPTCPGecko
                 //Read buffer from stream
                 cheatStream.Read(buffer, 0, (int)uplpacketsize);
                 FTDICommand returnvalue = GeckoWrite(buffer, (int)uplpacketsize);
-                if (returnvalue == FTDICommand.CMD_ResultError)
+                if (returnvalue == FTDICommand.CmdResultError)
                 {
                     retry++;
                     if (retry >= 3)
@@ -1768,7 +1708,7 @@ namespace TCPTCPGecko
                     GeckoWrite(BitConverter.GetBytes(GCRETRY), 1);
                     continue;
                 }
-                else if (returnvalue == FTDICommand.CMD_FatalError)
+                else if (returnvalue == FTDICommand.CmdFatalError)
                 {
                     //Major fail, give it up
                     GeckoWrite(BitConverter.GetBytes(GCFAIL), 1);
@@ -1778,7 +1718,7 @@ namespace TCPTCPGecko
 
                 Byte[] response = new Byte[1];
                 returnvalue = GeckoRead(response, 1);
-                if ((returnvalue == FTDICommand.CMD_ResultError) || (response[0] != GCACK))
+                if ((returnvalue == FTDICommand.CmdResultError) || (response[0] != GCACK))
                 {
                     retry++;
                     if (retry >= 3)
@@ -1793,7 +1733,7 @@ namespace TCPTCPGecko
                     GeckoWrite(BitConverter.GetBytes(GCRETRY), 1);
                     continue;
                 }
-                else if (returnvalue == FTDICommand.CMD_FatalError)
+                else if (returnvalue == FTDICommand.CmdFatalError)
                 {
                     //Major fail, give it up
                     GeckoWrite(BitConverter.GetBytes(GCFAIL), 1);
@@ -1818,7 +1758,7 @@ namespace TCPTCPGecko
                 //Read buffer from stream
                 cheatStream.Read(buffer, 0, (int)lastchunk);
                 FTDICommand returnvalue = GeckoWrite(buffer, (Int32)lastchunk);
-                if (returnvalue == FTDICommand.CMD_ResultError)
+                if (returnvalue == FTDICommand.CmdResultError)
                 {
                     retry++;
                     if (retry >= 3)
@@ -1833,7 +1773,7 @@ namespace TCPTCPGecko
                     GeckoWrite(BitConverter.GetBytes(GCRETRY), 1);
                     continue;
                 }
-                else if (returnvalue == FTDICommand.CMD_FatalError)
+                else if (returnvalue == FTDICommand.CmdFatalError)
                 {
                     //Major fail, give it up
                     GeckoWrite(BitConverter.GetBytes(GCFAIL), 1);
@@ -1854,7 +1794,7 @@ namespace TCPTCPGecko
         //Execute cheats
         public void ExecuteCheats()
         {
-            if (RawCommand(cmd_cheatexec) != FTDICommand.CMD_OK)
+            if (RawCommand(cmd_cheatexec) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
         }
         #endregion
@@ -1874,7 +1814,7 @@ namespace TCPTCPGecko
 
             //Perform hook command
             command += (Byte)hookType;
-            if (RawCommand(command) != FTDICommand.CMD_OK)
+            if (RawCommand(command) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
             //Send language
@@ -1883,12 +1823,12 @@ namespace TCPTCPGecko
             else
                 command = 0xCD;
 
-            if (RawCommand(command) != FTDICommand.CMD_OK)
+            if (RawCommand(command) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
             //Send patches
             command = (Byte)patches;
-            if (RawCommand(command) != FTDICommand.CMD_OK)
+            if (RawCommand(command) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
         }
 
@@ -2021,20 +1961,146 @@ namespace TCPTCPGecko
 			}
 
             //Send read
-            if (RawCommand(cmd_rpc) != FTDICommand.CMD_OK)
+            if (RawCommand(cmd_rpc) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
             
 
             //write value
-            if (GeckoWrite(buffer, buffer.Length) != FTDICommand.CMD_OK)
+            if (GeckoWrite(buffer, buffer.Length) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
-            if (GeckoRead(buffer, 8) != FTDICommand.CMD_OK)
+            if (GeckoRead(buffer, 8) != FTDICommand.CmdOk)
                 throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
 
             return ByteSwap.Swap(BitConverter.ToUInt64(buffer, 0));
         }
 
+        #endregion
+        #region CHEATS
+        public static byte[] StringToByteArray(string hex)
+        {
+            return Enumerable.Range(0, hex.Length)
+                             .Where(x => x % 2 == 0)
+                             .Select(x => Convert.ToByte(hex.Substring(x, 2), 16))
+                             .ToArray();
+        }
+
+        public int SendCheat(string cheat)
+        {
+            if (String.IsNullOrEmpty(cheat) || String.IsNullOrWhiteSpace(cheat))
+                return (-1);
+
+            uint[] c = new uint[0x100];
+            uint size = 0;
+            uint index = 0;
+            string name = "";
+            foreach (string line in cheat.Split(Environment.NewLine.ToCharArray()))
+            {
+                if (string.IsNullOrEmpty(line))
+                    continue;
+                if (line.Contains("["))
+                {
+                    name = line.Replace('[', ' ').Replace(']', ' ').Trim();
+                    continue;
+                }
+                string[] commands = line.Split(' ');
+
+                byte[] ar = StringToByteArray(commands[0]).Reverse().ToArray();
+                uint u = BitConverter.ToUInt32(ar, 0);
+                c[index++] = BitConverter.ToUInt32(StringToByteArray(commands[0]).Reverse().ToArray(), 0);
+                c[index++] = BitConverter.ToUInt32(StringToByteArray(commands[1]).Reverse().ToArray(), 0);
+                size += 8;
+            }
+
+            lock (_networkInUse)
+            {
+                // Send command byte
+                if (RawCommand(cmd_add_cheat) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
+
+                // Send code's size
+                if (GeckoWrite(BitConverter.GetBytes(size), 4) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDIWriteDataError);
+
+                // Send code
+                if (GeckoWrite(c, (size / 4)) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDIWriteDataError);
+
+                byte[] bname = Encoding.UTF8.GetBytes(name);
+
+                // Send name's size
+                size = (uint) bname.Length;
+                byte[] buffer = BitConverter.GetBytes(size);
+
+                if (GeckoWrite(buffer, 4) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDIWriteDataError);
+
+                // Send name
+                if (size > 0)
+                {
+                    if (GeckoWrite(bname, (int)size) != FTDICommand.CmdOk)
+                        throw new ETCPGeckoException(ETCPErrorCode.FTDIWriteDataError);
+                }
+
+                // Receive id of the cheat
+                buffer = new byte[4];
+                if (GeckoRead(buffer, 4) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDIReadDataError);
+
+                return BitConverter.ToInt32(buffer, 0);
+
+            }
+        }
+
+        public void RemoveCheat(int id)
+        {
+            lock (_networkInUse)
+            {
+                // Send command
+                if (RawCommand(cmd_delete_cheat) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
+
+                // Send index
+                if (GeckoWrite(BitConverter.GetBytes(id), 4) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDIWriteDataError);
+            }
+        }
+
+        public void EnableCheat(int id)
+        {
+            lock (_networkInUse)
+            {
+                // Send command
+                if (RawCommand(cmd_enable_cheat) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
+
+                // Send index
+                if (GeckoWrite(BitConverter.GetBytes(id), 4) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDIWriteDataError);
+            }
+        }
+
+        public void DisableCheat(int id)
+        {
+            lock (_networkInUse)
+            {
+                // Send command
+                if (RawCommand(cmd_disable_cheat) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
+
+                // Send index
+                if (GeckoWrite(BitConverter.GetBytes(id), 4) != FTDICommand.CmdOk)
+                    throw new ETCPGeckoException(ETCPErrorCode.FTDIWriteDataError);
+            }
+        }
+
+        public void ListCheats()
+        {
+            // Send command
+           if (RawCommand(cmd_list_cheats) != FTDICommand.CmdOk)
+           throw new ETCPGeckoException(ETCPErrorCode.FTDICommandSendError);
+            
+        }
         #endregion
     }
 }

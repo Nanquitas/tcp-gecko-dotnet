@@ -5414,5 +5414,44 @@ namespace GeckoApp
             ValidMemory.setDataUpper(gecko);
             UpdateComponent();
         }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            string cheat = textAR.Text;
+
+            gecko.SendCheat(cheat);
+        }
+
+        private void EnableAR_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(cheatID.Text)) return;
+
+            int id = Convert.ToInt32(cheatID.Text);
+
+            gecko.EnableCheat(id);
+        }
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(cheatID.Text)) return;
+
+            int id = Convert.ToInt32(cheatID.Text);
+
+            gecko.DisableCheat(id);
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(cheatID.Text)) return;
+
+            int id = Convert.ToInt32(cheatID.Text);
+
+            gecko.RemoveCheat(id);
+        }
+
+        private void button5_Click(object sender, EventArgs e)
+        {
+            gecko.ListCheats();
+        }
     }
 }
